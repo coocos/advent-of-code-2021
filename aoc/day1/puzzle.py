@@ -8,8 +8,10 @@ def parse_input() -> list[int]:
     ]
 
 
-def count_increases(values: list[int]) -> int:
-    return sum(int(second - first > 0) for first, second in zip(values, values[1:]))
+def count_increases(values: list[int], offset: int) -> int:
+    return sum(
+        int(second - first > 0) for first, second in zip(values, values[offset:])
+    )
 
 
 def solve() -> None:
@@ -17,11 +19,10 @@ def solve() -> None:
     measurements = parse_input()
 
     # First part
-    assert count_increases(measurements) == 1374
+    assert count_increases(measurements, offset=1) == 1374
 
     # Second part
-    windows = [sum(measurements[x : x + 3]) for x in range(len(measurements) - 2)]
-    assert count_increases(windows) == 1418
+    assert count_increases(measurements, offset=3) == 1418
 
 
 if __name__ == "__main__":

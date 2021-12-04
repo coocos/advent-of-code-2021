@@ -2,58 +2,67 @@ from pathlib import Path
 from collections import defaultdict
 
 
-def parse_input() -> list[int]:
-    lines = (Path(__file__).parent / "input.txt").read_text().splitlines()
+def parse_input() -> tuple[list[int], list[list[list[int]]]]:
 
+    lines = (Path(__file__).parent / "input.txt").read_text().splitlines()
     numbers = [int(number) for number in lines[0].split(",")]
 
     boards = []
-    rows = []
     for line in lines[1:]:
         if not line:
-            if rows:
-                boards.append(rows)
-            rows = []
+            boards.append([])
             continue
-        rows.append([int(number) for number in line.split()])
+        boards[-1].append([int(value) for value in line.split()])
+    return numbers, boards
 
-    boards.append(rows)
 
-    index = defaultdict(list)
-    for board_id, board in enumerate(boards):
-        rows = [set() for _ in range(len(board))]
-        cols = [set() for _ in range(len(board))]
-        for y in range(len(board)):
-            for x in range(len(board)):
-                number = board[y][x]
-                rows[y].add(number)
-                cols[x].add(number)
-                index[number].append((board_id, rows[y]))
-                index[number].append((board_id, cols[x]))
+def bingo(numbers: list[int], boards: list[list[list[int]]]) -> list[int]:
 
-    scores = []
+    columns_and_rows_for_value = defaultdict(list)
+
+    for board, rows in enumerate(boards):
+        values_for_column = defaultdict(set)
+        values_for_row = defaultdict(set)
+        for y, row in enumerate(rows):
+            for x, value in enumerate(row):
+                values_for_column[y].add(value)
+                values_for_row[x].add(value)
+                columns_and_rows_for_value[value] += [
+                    (board, values_for_column[y]),
+                    (board, values_for_row[x]),
+                ]
+
     winners = set()
-    for i, number in enumerate(numbers):
-        if number in index:
-            for board_id, row_col in index[number]:
-                if board_id not in winners:
-                    row_col.remove(number)
-                    if not row_col:
-                        unmarked_sum = 0
-                        for row in boards[board_id]:
-                            for value in row:
-                                if value not in numbers[: i + 1]:
-                                    unmarked_sum += value
-                        scores.append(number * unmarked_sum)
-                        winners.add(board_id)
+    scores = []
+
+    for current, number in enumerate(numbers):
+        for board, row_or_column in columns_and_rows_for_value[number]:
+            if board in winners:
+                continue
+
+            row_or_column.remove(number)
+            if not row_or_column:
+                winners.add(board)
+                score = sum(
+                    value
+                    for row in boards[board]
+                    for value in row
+                    if value not in numbers[: current + 1]
+                )
+                scores.append(number * score)
+
     return scores
 
 
 def solve() -> None:
 
-    scores = parse_input()
+    numbers, boards = parse_input()
+    scores = bingo(numbers, boards)
 
+    # First part
     assert scores[0] == 51776
+
+    # Second part
     assert scores[-1] == 16830
 
 

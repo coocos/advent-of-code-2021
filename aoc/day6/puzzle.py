@@ -9,30 +9,36 @@ def parse_input() -> list[int]:
     ]
 
 
-def solve() -> None:
+def simulate(fish: list[int]) -> list[int]:
 
-    fish = {i: 0 for i in range(9)}
-    timers = parse_input()
-    for timer in timers:
-        fish[timer] += 1
+    last_gen = [0] * 9
+    for timer in fish:
+        last_gen[timer] += 1
 
-    last_gen = fish
-    fishes_at_day = {}
-    for day in range(256):
-        next_gen = defaultdict(int)
-        for timer, count in last_gen.items():
+    days: list[int] = []
+    for _ in range(256):
+        next_gen = [0] * 9
+        for timer, count in enumerate(last_gen):
             if timer != 0:
                 next_gen[timer - 1] = count
         next_gen[6] += last_gen[0]
         next_gen[8] += last_gen[0]
         last_gen = next_gen
-        fishes_at_day[day + 1] = sum(last_gen.values())
+        days.append(sum(last_gen))
+
+    return days
+
+
+def solve() -> None:
+
+    fish = parse_input()
+    days = simulate(fish)
 
     # First part
-    assert fishes_at_day[80] == 379114
+    assert days[79] == 379114
 
     # Second part
-    assert fishes_at_day[256] == 1702631502303
+    assert days[255] == 1702631502303
 
 
 if __name__ == "__main__":

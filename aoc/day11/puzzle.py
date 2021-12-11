@@ -1,5 +1,5 @@
 from collections import deque
-from typing import Iterable
+from typing import Iterable, Deque
 from pathlib import Path
 
 Grid = list[list[int]]
@@ -7,6 +7,7 @@ Point = tuple[int, int]
 
 
 def parse_input() -> Grid:
+
     return [
         [int(col) for col in row]
         for row in (Path(__file__).parent / "input.txt").read_text().splitlines()
@@ -35,40 +36,41 @@ def neighbours(point: Point, grid: Grid) -> Iterable[Point]:
 
 
 def solve() -> None:
+
     grid = parse_input()
     flashes = 0
-    flashes_at_step = []
+    flashes_at_step: list[int] = []
 
     while True:
 
-        need_to_flash = deque()
+        will_flash: Deque[Point] = deque()
 
         for y in range(len(grid)):
             for x in range(len(grid[y])):
                 grid[y][x] += 1
                 if grid[y][x] > 9:
-                    need_to_flash.append((x, y))
+                    will_flash.append((x, y))
 
-        flashed = set()
-        while need_to_flash:
-            x, y = need_to_flash.popleft()
+        flashed: set[Point] = set()
+        while will_flash:
+            x, y = will_flash.popleft()
             if (x, y) in flashed:
                 continue
             flashed.add((x, y))
             for nx, ny in neighbours((x, y), grid):
                 grid[ny][nx] += 1
                 if grid[ny][nx] > 9 and (nx, ny) not in flashed:
-                    need_to_flash.append((nx, ny))
+                    will_flash.append((nx, ny))
         flashes += len(flashed)
         flashes_at_step.append(flashes)
 
-        for y in range(len(grid)):
-            for x in range(len(grid[y])):
-                if grid[y][x] > 9:
-                    grid[y][x] = 0
-
         if len(flashed) == len(grid) ** 2:
             break
+
+        for y in range(len(grid)):
+            for x in range(len(grid)):
+                if grid[y][x] > 9:
+                    grid[y][x] = 0
 
     # First part
     assert flashes_at_step[100] == 1739

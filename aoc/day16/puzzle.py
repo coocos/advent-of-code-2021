@@ -1,3 +1,4 @@
+from __future__ import annotations
 import operator
 from functools import reduce
 from dataclasses import dataclass, field
@@ -5,14 +6,26 @@ from pathlib import Path
 
 
 @dataclass
-class Packet:
+class LiteralPacket:
 
     version: int
     type: int
-    value: int = 0
-    length: int = 0
+    value: int
+    size: int
 
-    packets: list["Packet"] = field(default_factory=list)
+
+@dataclass
+class OperatorPacket:
+
+    version: int
+    type: int
+    mode: int
+
+    packets: list[OperatorPacket | LiteralPacket] = field(default_factory=list)
+
+    @property
+    def size(self) -> int:
+        return sum(p.size for p in self.packets) + (18 if self.mode else 22)
 
 
 def parse_input() -> str:
@@ -21,92 +34,69 @@ def parse_input() -> str:
     return bin(int(packet, 16))[2:].zfill(len(packet) * 4)
 
 
-def decode(packet: str) -> Packet:
+def decode(bits: str) -> LiteralPacket | OperatorPacket:
 
-    version = int(packet[:3], 2)
-    type = int(packet[3:6], 2)
+    version = int(bits[:3], 2)
+    type = int(bits[3:6], 2)
+
+    payload = bits[6:]
 
     if type == 4:
-        payload = packet[6:]
-        length = 6
+        size = 6
         number = ""
         while payload:
-            more = payload[0]
+            more = int(payload[0])
             number += payload[1:5]
-            length += 5
-            if not int(more):
+            size += 5
+            if not more:
                 break
             payload = payload[5:]
-        number = int(number, 2)
-        return Packet(version, type, number, length)
+        return LiteralPacket(version, type, int(number, 2), size)
     else:
-        mode = int(packet[6])
+        mode = int(payload[0])
+        sub_packets = []
         if mode:
-            sub_packet_count = int(packet[7 : 7 + 11], 2)
-            sub_packet_bits = packet[7 + 11 :]
-            sub_packets = []
+            sub_packet_count = int(payload[1:12], 2)
+            sub_packet_bits = payload[12:]
             while len(sub_packets) < sub_packet_count:
-                sub_packet = decode(sub_packet_bits)
-                sub_packet_bits = sub_packet_bits[sub_packet.length :]
-                sub_packets.append(sub_packet)
-            return Packet(
-                version,
-                type,
-                0,
-                6 + 11 + sum(packet.length for packet in sub_packets) + 1,
-                sub_packets,
-            )
+                sub_packets.append(decode(sub_packet_bits))
+                sub_packet_bits = sub_packet_bits[sub_packets[-1].size :]
         else:
-            sub_packets = []
-            sub_packet_size = int(packet[7 : 7 + 15], 2)
-            sub_packet_bits = packet[7 + 15 :]
-            while (
-                sum(sub_packet.length for sub_packet in sub_packets) < sub_packet_size
-            ):
-                sub_packet = decode(sub_packet_bits)
-                sub_packets.append(sub_packet)
-                sub_packet_bits = sub_packet_bits[sub_packet.length :]
-            return Packet(
-                version,
-                type,
-                0,
-                6 + 15 + sub_packet_size + 1,
-                sub_packets,
-            )
+            sub_packet_size = int(payload[1:16], 2)
+            sub_packet_bits = payload[16:]
+            while sum(p.size for p in sub_packets) < sub_packet_size:
+                sub_packets.append(decode(sub_packet_bits))
+                sub_packet_bits = sub_packet_bits[sub_packets[-1].size :]
+        return OperatorPacket(
+            version,
+            type,
+            mode,
+            sub_packets,
+        )
 
 
-def version_sum(packet: Packet, depth: int = 0) -> int:
+def version_sum(packet: LiteralPacket | OperatorPacket) -> int:
 
-    if not packet.packets:
+    if isinstance(packet, LiteralPacket):
         return packet.version
 
-    versions = packet.version
-    for sub_packet in packet.packets:
-        versions += version_sum(sub_packet, depth + 1)
-    return versions
+    return packet.version + sum(version_sum(p) for p in packet.packets)
 
 
-def visit(packet: Packet) -> int:
+def visit(packet: LiteralPacket | OperatorPacket) -> int:
 
-    if packet.type == 0:
-        return sum(visit(p) for p in packet.packets)
-    elif packet.type == 1:
-        return reduce(operator.mul, (visit(p) for p in packet.packets))
-    elif packet.type == 2:
-        return min(visit(p) for p in packet.packets)
-    elif packet.type == 3:
-        return max(visit(p) for p in packet.packets)
-    elif packet.type == 4:
+    if isinstance(packet, LiteralPacket):
         return packet.value
-    elif packet.type == 5:
-        first, second = packet.packets
-        return int(visit(first) > visit(second))
-    elif packet.type == 6:
-        first, second = packet.packets
-        return int(visit(first) < visit(second))
-    else:
-        first, second = packet.packets
-        return int(visit(first) == visit(second))
+
+    return {
+        0: lambda packet: sum(visit(p) for p in packet.packets),
+        1: lambda packet: reduce(operator.mul, (visit(p) for p in packet.packets)),
+        2: lambda packet: min(visit(p) for p in packet.packets),
+        3: lambda packet: max(visit(p) for p in packet.packets),
+        5: lambda packet: int(visit(packet.packets[0]) > visit(packet.packets[1])),
+        6: lambda packet: int(visit(packet.packets[0]) < visit(packet.packets[1])),
+        7: lambda packet: int(visit(packet.packets[0]) == visit(packet.packets[1])),
+    }[packet.type](packet)
 
 
 def solve() -> None:

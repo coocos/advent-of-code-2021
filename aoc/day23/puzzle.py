@@ -34,23 +34,24 @@ class Pod:
             return 1000
 
 
-rooms = {
+rooms_small = {
     "A": [Point(3, 2), Point(3, 3)],
     "B": [Point(5, 2), Point(5, 3)],
     "C": [Point(7, 2), Point(7, 3)],
     "D": [Point(9, 2), Point(9, 3)],
 }
 
-room_points = {
-    Point(3, 2),
-    Point(3, 3),
-    Point(5, 2),
-    Point(5, 3),
-    Point(7, 2),
-    Point(7, 3),
-    Point(9, 2),
-    Point(9, 3),
+rooms_large = {
+    "A": rooms_small["A"] + [Point(3, 4), Point(3, 5)],
+    "B": rooms_small["B"] + [Point(5, 4), Point(5, 5)],
+    "C": rooms_small["C"] + [Point(7, 4), Point(7, 5)],
+    "D": rooms_small["D"] + [Point(9, 4), Point(9, 5)],
 }
+
+room_points = set()
+for points in rooms_large.values():
+    for point in points:
+        room_points.add(point)
 
 hallway = [
     Point(1, 1),
@@ -71,13 +72,16 @@ class State:
 
     def is_valid(self) -> bool:
         for pod in self.pods:
-            if pod.pos not in rooms[pod.type]:
+            if pod.pos not in self.rooms[pod.type]:
                 return False
         return True
 
-    def possible(self, pod: Pod) -> dict[Point, int]:
-        other_pods = {other.pos for other in self.pods if other != pod}
+    @property
+    def rooms(self) -> dict[str, list[Point]]:
+        return rooms_small if len(self.pods) == 8 else rooms_large
 
+    def possible_points(self, pod: Pod) -> dict[Point, int]:
+        occupied = {other.pos for other in self.pods if other != pod}
         queue: Deque[tuple[int, Point]] = deque([(0, pod.pos)])
         visited = {pod.pos: 0}
 
@@ -86,7 +90,7 @@ class State:
             for neighbour in pos.neighbours():
                 if (
                     neighbour in self.burrow
-                    and neighbour not in other_pods
+                    and neighbour not in occupied
                     and neighbour not in visited
                 ):
                     queue.append((cost + pod.cost(), neighbour))
@@ -96,21 +100,20 @@ class State:
     def moves(self, pod: Pod) -> Iterable[tuple[int, Point]]:
 
         # Pod is within the correct room
-        if pod.pos in rooms[pod.type]:
+        if pod.pos in self.rooms[pod.type]:
             # Already at the bottom, do not move
-            # FIXME: If everything below this pod is of the correct color
-            if pod.pos == rooms[pod.type][-1]:
+            if pod.pos == self.rooms[pod.type][-1]:
                 return
             # Room is already full with correct pods
             pods_in_room = []
             for other in self.pods:
-                if other.pos in rooms[pod.type] and other.type == pod.type:
+                if other.pos in self.rooms[pod.type] and other.type == pod.type:
                     pods_in_room.append(other)
-            if len(pods_in_room) == len(rooms[pod.type]):
+            if len(pods_in_room) == len(self.rooms[pod.type]):
                 return
             # Move within the room
-            possible_points = self.possible(pod)
-            for point in rooms[pod.type]:
+            possible_points = self.possible_points(pod)
+            for point in self.rooms[pod.type]:
                 if point != pod.pos and point in possible_points:
                     yield possible_points[point], point
             # Move to the hallway
@@ -119,7 +122,7 @@ class State:
                     yield possible_points[point], point
         # Pod is within some other room
         elif pod.pos in room_points:
-            possible_points = self.possible(pod)
+            possible_points = self.possible_points(pod)
             for point in hallway:
                 if point in possible_points:
                     yield possible_points[point], point
@@ -127,26 +130,26 @@ class State:
         else:
             # Target room contains pod from other color - do not move into it
             for other in self.pods:
-                if other.pos in rooms[pod.type] and other.type != pod.type:
+                if other.pos in self.rooms[pod.type] and other.type != pod.type:
                     return
-            possible_points = self.possible(pod)
-            for point in rooms[pod.type]:
+            possible_points = self.possible_points(pod)
+            for point in self.rooms[pod.type]:
                 if point in possible_points:
                     yield possible_points[point], point
 
 
-def parse_input() -> State:
+def parse_input(input_file: str) -> State:
 
-    pods: list[Pod] = []
+    pods: set[Pod] = set()
     burrow: set[Point] = set()
 
     for y, row in enumerate(
-        (Path(__file__).parent / "input.txt").read_text().splitlines()
+        (Path(__file__).parent / input_file).read_text().splitlines()
     ):
         for x, cell in enumerate(row):
             point = Point(x, y)
             if cell in "ABCD":
-                pods.append(Pod(cell, point))
+                pods.add(Pod(cell, point))
                 burrow.add(point)
             elif cell == ".":
                 burrow.add(point)
@@ -154,36 +157,16 @@ def parse_input() -> State:
     return State(frozenset(pods), frozenset(burrow))
 
 
-def draw(state: State) -> None:
-
-    grid: list[list[str]] = []
-    for y in range(5):
-        grid.append([])
-        for x in range(13):
-            for pod in state.pods:
-                if pod.pos == Point(x, y):
-                    grid[-1].append(pod.type)
-                    break
-            else:
-                if Point(x, y) in state.burrow:
-                    grid[-1].append(".")
-                else:
-                    grid[-1].append(" ")
-    print("\n".join("".join(row) for row in grid))
-
-
-def bfs(genesis: State) -> int:
+def least_energy(initial_state: State) -> int:
 
     heap: list[tuple[int, State]] = []
-    heappush(heap, (0, genesis))
+    heappush(heap, (0, initial_state))
     costs = defaultdict(lambda: 1_000_000)
 
     while heap:
 
         cost, state = heappop(heap)
-        print(cost)
         if state.is_valid():
-            print(cost)
             return cost
 
         if costs[state.pods] <= cost:
@@ -204,12 +187,13 @@ def bfs(genesis: State) -> int:
 
 def solve() -> None:
 
-    state = parse_input()
-
-    draw(state)
-
     # First part
-    assert bfs(state) == 12240
+    state = parse_input("input_1.txt")
+    assert least_energy(state) == 12240
+
+    # Second part
+    state = parse_input("input_2.txt")
+    assert least_energy(state) == 44618
 
 
 if __name__ == "__main__":

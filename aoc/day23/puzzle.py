@@ -24,62 +24,65 @@ class Pod:
     pos: Point
 
     def cost(self) -> int:
-        return {
-            "A": 1,
-            "B": 10,
-            "C": 100,
-            "D": 1000,
-        }[self.type]
+        if self.type == "A":
+            return 1
+        elif self.type == "B":
+            return 10
+        elif self.type == "C":
+            return 100
+        else:
+            return 1000
+
+
+rooms = {
+    "A": [Point(3, 2), Point(3, 3)],
+    "B": [Point(5, 2), Point(5, 3)],
+    "C": [Point(7, 2), Point(7, 3)],
+    "D": [Point(9, 2), Point(9, 3)],
+}
+
+room_points = {
+    Point(3, 2),
+    Point(3, 3),
+    Point(5, 2),
+    Point(5, 3),
+    Point(7, 2),
+    Point(7, 3),
+    Point(9, 2),
+    Point(9, 3),
+}
+
+hallway = [
+    Point(1, 1),
+    Point(2, 1),
+    Point(4, 1),
+    Point(6, 1),
+    Point(8, 1),
+    Point(10, 1),
+    Point(11, 1),
+]
 
 
 @dataclass(frozen=True, order=True)
 class State:
 
-    pods: list[Pod]
-    burrow: set[Point]
-    previous: State | None = None
-    cost: int = 0
-
-    def pod_hash(self) -> tuple[Pod, ...]:
-        return tuple(sorted(self.pods))
-
-    @property
-    def rooms(self) -> dict[Literal["A", "B", "C", "D"], list[Point]]:
-        return {
-            "A": [Point(3, 2), Point(3, 3)],
-            "B": [Point(5, 2), Point(5, 3)],
-            "C": [Point(7, 2), Point(7, 3)],
-            "D": [Point(9, 2), Point(9, 3)],
-        }
-
-    @property
-    def hallway(self) -> list[Point]:
-        return [
-            Point(1, 1),
-            Point(2, 1),
-            Point(4, 1),
-            Point(6, 1),
-            Point(8, 1),
-            Point(10, 1),
-            Point(11, 1),
-        ]
+    pods: frozenset[Pod]
+    burrow: frozenset[Point]
 
     def is_valid(self) -> bool:
         for pod in self.pods:
-            if pod.pos not in self.rooms[pod.type]:
+            if pod.pos not in rooms[pod.type]:
                 return False
         return True
 
-    def can_move_to(self, pod: Pod, dest: Point) -> int:
-        visited: set[Point] = set()
+    def possible(self, pod: Pod) -> dict[Point, int]:
         other_pods = {other.pos for other in self.pods if other != pod}
 
         queue: Deque[tuple[int, Point]] = deque([(0, pod.pos)])
+        visited = {pod.pos: 0}
+
         while queue:
             cost, pos = queue.popleft()
-            if pos == dest:
-                return cost
-            visited.add(pos)
             for neighbour in pos.neighbours():
                 if (
                     neighbour in self.burrow
@@ -87,48 +90,49 @@ class State:
                     and neighbour not in visited
                 ):
                     queue.append((cost + pod.cost(), neighbour))
-        return -1
+                    visited[neighbour] = cost + pod.cost()
+        return visited
 
     def moves(self, pod: Pod) -> Iterable[tuple[int, Point]]:
 
         # Pod is within the correct room
-        if pod.pos in self.rooms[pod.type]:
+        if pod.pos in rooms[pod.type]:
             # Already at the bottom, do not move
-            if pod.pos == self.rooms[pod.type][-1]:
+            # FIXME: If everything below this pod is of the correct color
+            if pod.pos == rooms[pod.type][-1]:
                 return
             # Room is already full with correct pods
             pods_in_room = []
             for other in self.pods:
-                if other.pos in self.rooms[pod.type] and other.type == pod.type:
+                if other.pos in rooms[pod.type] and other.type == pod.type:
                     pods_in_room.append(other)
-            if len(pods_in_room) == len(self.rooms[pod.type]):
+            if len(pods_in_room) == len(rooms[pod.type]):
                 return
             # Move within the room
-            for point in self.rooms[pod.type]:
-                if point != pod.pos:
-                    if (cost := self.can_move_to(pod, point)) != -1:
-                        yield cost, point
+            possible_points = self.possible(pod)
+            for point in rooms[pod.type]:
+                if point != pod.pos and point in possible_points:
+                    yield possible_points[point], point
             # Move to the hallway
-            for point in self.hallway:
-                if (cost := self.can_move_to(pod, point)) != -1:
-                    yield cost, point
+            for point in hallway:
+                if point in possible_points:
+                    yield possible_points[point], point
         # Pod is within some other room
-        elif (
-            pod.pos
-            in self.rooms["A"] + self.rooms["B"] + self.rooms["C"] + self.rooms["D"]
-        ):
-            for point in self.hallway:
-                if (cost := self.can_move_to(pod, point)) != -1:
-                    yield cost, point
+        elif pod.pos in room_points:
+            possible_points = self.possible(pod)
+            for point in hallway:
+                if point in possible_points:
+                    yield possible_points[point], point
         # Pod is in the hallway
         else:
-            # Room contains pod from other color - do not move into it
+            # Target room contains pod from other color - do not move into it
             for other in self.pods:
-                if other.pos in self.rooms[pod.type] and other.type != pod.type:
+                if other.pos in rooms[pod.type] and other.type != pod.type:
                     return
-            for point in self.rooms[pod.type]:
-                if (cost := self.can_move_to(pod, point)) != -1:
-                    yield cost, point
+            possible_points = self.possible(pod)
+            for point in rooms[pod.type]:
+                if point in possible_points:
+                    yield possible_points[point], point
 
 
 def parse_input() -> State:
@@ -147,7 +151,7 @@ def parse_input() -> State:
             elif cell == ".":
                 burrow.add(point)
 
-    return State(pods, burrow)
+    return State(frozenset(pods), frozenset(burrow))
 
 
 def draw(state: State) -> None:
@@ -171,35 +175,37 @@ def draw(state: State) -> None:
 def bfs(genesis: State) -> int:
 
     heap: list[tuple[int, State]] = []
-    heappush(heap, (genesis.cost, genesis))
+    heappush(heap, (0, genesis))
     costs = defaultdict(lambda: 1_000_000)
 
     while heap:
 
         cost, state = heappop(heap)
+        print(cost)
         if state.is_valid():
+            print(cost)
             return cost
 
-        if costs[state.pod_hash()] <= cost:
+        if costs[state.pods] <= cost:
             continue
-        costs[state.pod_hash()] = cost
-
-        if state.is_valid():
-            print(state.cost)
-            return state.cost
+        costs[state.pods] = cost
 
         for pod in state.pods:
-            for cost, point in state.moves(pod):
-                pods = [Pod(pod.type, point)] + [p for p in state.pods if p != pod]
-                next_state = State(pods, state.burrow, state, state.cost + cost)
-                if costs[next_state.pod_hash()] > next_state.cost:
-                    heappush(heap, (next_state.cost, next_state))
+            for move_cost, point in state.moves(pod):
+                pods = frozenset(
+                    [Pod(pod.type, point)] + [p for p in state.pods if p != pod]
+                )
+                next_state = State(pods, state.burrow)
+                if costs[next_state.pods] > cost + move_cost:
+                    heappush(heap, (cost + move_cost, next_state))
+
     return -1
 
 
 def solve() -> None:
 
     state = parse_input()
+
     draw(state)
 
     # First part
